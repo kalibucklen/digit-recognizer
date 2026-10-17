@@ -75,6 +75,11 @@ export default function App() {
   small.width = 28;
   small.height = 28;
   small.getContext("2d").drawImage(canvasRef.current, 0, 0, 28, 28);
+  const pctx = previewRef.current.getContext("2d");
+  pctx.imageSmoothingEnabled = false;
+  pctx.drawImage(small, 0, 0, 140, 140);
+
+  if(!model) return;
 
   const tensor = tf.browser
     .fromPixels(small, 1)
@@ -91,37 +96,59 @@ export default function App() {
 };
 
   return (
-    <div style={{ textAlign: "center", marginTop: 40, fontFamily: "sans-serif" }}>
-      <h1>Draw a digit</h1>
-      <canvas
-        ref={canvasRef}
-        width={280}
-        height={280}
-        style={{ border: "2px solid #333", touchAction: "none" }}
-        onMouseDown={startDraw}
-        onMouseMove={draw}
-        onMouseUp={stopDraw}
-        onMouseLeave={stopDraw}
-        onTouchStart={startDraw}
-        onTouchMove={draw}
-        onTouchEnd={stopDraw}
-      />
-      <div style={{ marginTop: 16 }}>
-        <button onClick={predict}>Predict</button>
-        <button onClick={clearCanvas} style={{ marginLeft: 8 }}>Clear</button>
-      </div>
-      {prediction !== null && (
-        <div style={{ marginTop: 20 }}>
-          <h2>Prediction: {prediction}</h2>
-          <div style={{ display: "inline-block", textAlign: "left" }}>
-            {confidences.map((c, i) => (
-              <div key={i}>
-                {i}: {(c * 100).toFixed(1)}%
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 16,
+      marginTop: 40,
+      fontFamily: "sans-serif",
+    }}
+  >
+    <h1>Draw a digit</h1>
+
+    <canvas
+      ref={canvasRef}
+      width={280}
+      height={280}
+      style={{ border: "2px solid #333", touchAction: "none" }}
+      onMouseDown={startDraw}
+      onMouseMove={draw}
+      onMouseUp={stopDraw}
+      onMouseLeave={stopDraw}
+      onTouchStart={startDraw}
+      onTouchMove={draw}
+      onTouchEnd={stopDraw}
+    />
+
+    <div style={{ display: "flex", gap: 8 }}>
+      <button onClick={predict}>Predict</button>
+      <button onClick={clearCanvas}>Clear</button>
     </div>
-  );
+
+    <div style={{ textAlign: "center" }}>
+      <div style={{ fontSize: 12, marginBottom: 4 }}>What the model sees (28x28)</div>
+      <canvas
+        ref={previewRef}
+        width={140}
+        height={140}
+        style={{ border: "1px solid #999" }}
+      />
+    </div>
+
+    {prediction !== null && (
+      <div style={{ textAlign: "center" }}>
+        <h2>Prediction: {prediction}</h2>
+        <div style={{ display: "inline-block", textAlign: "left" }}>
+          {confidences.map((c, i) => (
+            <div key={i}>
+              {i}: {(c * 100).toFixed(1)}%
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+);
 }
