@@ -20,49 +20,64 @@ If you are developing a production application, we recommend using TypeScript wi
 
 # Digit Recognizer
 
-![screenshot](screenshot_training.png)
+Draw a digit in the browser and a convolutional neural network predicts it in
+real time, entirely client-side. There are no server calls after the page loads.
 
-Draw a digit in the browser and a neural network predicts it in real time,
-entirely client-side — no server calls after the page loads.
+**[Live demo](https://digit-recognizer-o8buntsr1-ri-sing-spire.vercel.app/)**
 
-**[Live demo](https://digit-recognizer-qtj9misho-ri-sing-spire.vercel.app)**
+![screenshot](working-digit-recognizer.png)
 
 ## How it works
 
-A neural network is trained on the MNIST handwritten digit dataset using
-TensorFlow.js in Node, then loaded directly in the browser for in-browser
-inference. When you draw a digit, the canvas is scanned to find the drawn
-strokes, cropped and centered around them, downscaled to 28x28, and fed
-into the model — mirroring how the MNIST training images are formatted.
+The model is trained in Python (Keras) on the full MNIST dataset, with data
+augmentation so it tolerates imperfectly drawn digits. The trained weights are
+exported as a raw binary file plus shape metadata. The web app rebuilds the same
+architecture in TensorFlow.js, loads the weights, and runs inference in the browser.
+
+When you click Predict, the canvas is preprocessed to match MNIST formatting:
+the drawn strokes are located, cropped to a padded square, centered,
+downscaled to 28x28, and normalized.
 
 ## Stack
 
-- TensorFlow.js — model training (Node) and inference (browser)
+- Keras / TensorFlow (training, in Google Colab)
+- TensorFlow.js (in-browser inference)
 - React + Vite
+- Docker
 - Deployed on Vercel
 
 ## Model
 
-- Architecture: dense neural network (128 → 64 → 10 units, with dropout)
-- Trained on a 3,000-example subset of MNIST
-- Validation accuracy: ~95.7%
+- Architecture: 2 conv layers (32 and 64 filters, 3x3) with max pooling,
+  then a 128-unit dense layer with dropout (0.3) and a 10-way softmax
+- Training: 60,000 MNIST training images, 15 epochs, Adam optimizer, with random
+  shift, zoom, and rotation augmentation
+- Accuracy: 98.97% on the 10,000-image MNIST test set (final epoch)
 
-A CNN was the initial approach but was impractically slow to train on
-CPU without native TensorFlow bindings, so this uses a dense network
-instead — a deliberate tradeoff to keep training time reasonable.
+Note: that accuracy is on standard MNIST digits. Freehand mouse drawing differs
+from MNIST, so real-world accuracy in the app is lower.
+
+## Training
+
+The training notebook is in `training/`. It exports `weights.bin` and
+`meta.json`, which live in `public/cnn/` and are loaded by the app at startup.
 
 ## Known limitations
 
-- Accuracy drops for digits drawn very small, off-center, or with
-  unusual stroke thickness, since the training data (synthetic MNIST-
-  formatted samples) doesn't perfectly match freehand browser drawing.
-  Works best with digits drawn large and roughly centered.
-- Trained on a subset of MNIST rather than the full 60,000-image set,
-  as a time tradeoff.
+- Freehand drawings can still be misclassified, since MNIST digits were written
+  with pens on paper and then normalized. Works best with large, centered digits.
 
 ## Running locally
 
-\`\`\`bash
+```bash
 npm install
 npm run dev
-\`\`\`
+```
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+See `README.Docker.md` and `compose.yaml` for the port.
