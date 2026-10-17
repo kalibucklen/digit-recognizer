@@ -3,6 +3,7 @@ import * as tf from "@tensorflow/tfjs";
 
 export default function App() {
   const canvasRef = useRef(null);
+  const previewRef = useRef(null);
   const [model, setModel] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [confidences, setConfidences] = useState([]);
