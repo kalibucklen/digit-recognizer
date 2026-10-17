@@ -1,6 +1,37 @@
 import { useRef, useState, useEffect } from "react";
 import * as tf from "@tensorflow/tfjs";
 
+function buildModel() {
+  const m = tf.sequential();
+  m.add(tf.layers.conv2d({ inputShape: [28, 28, 1], filters: 32, kernelSize: 3, activation: "relu" }));
+  m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+  m.add(tf.layers.conv2d({ filters: 64, kernelSize: 3, activation: "relu" }));
+  m.add(tf.layers.maxPooling2d({ poolSize: 2 }));
+  m.add(tf.layers.flatten());
+  m.add(tf.layers.dense({ units: 128, activation: "relu" }));
+  m.add(tf.layers.dropout({ rate: 0.3 }));
+  m.add(tf.layers.dense({ units: 10, activation: "softmax" }));
+  return m;
+}
+
+async function loadModel() {
+  const [meta, buf] = await Promise.all([
+    fetch("/cnn/meta.json").then((r) => r.json()),
+    fetch("/cnn/weights.bin").then((r) => r.arrayBuffer()),
+  ]);
+  const floats = new Float32Array(buf);
+  let offset = 0;
+  const tensors = meta.map(({ shape }) => {
+    const size = shape.reduce((a, b) => a * b, 1);
+    const t = tf.tensor(floats.slice(offset, offset + size), shape);
+    offset += size;
+    return t;
+  });
+  const model = buildModel();
+  model.setWeights(tensors);
+  return model;
+}
+
 export default function App() {
   const canvasRef = useRef(null);
   const previewRef = useRef(null);
@@ -9,30 +40,43 @@ export default function App() {
   const [confidences, setConfidences] = useState([]);
   const isDrawing = useRef(false);
 
-  useEffect(() => {
-    tf.loadLayersModel("/tfjs_model/model.json")
-      .then((m) => {
-        console.log("Model loaded successfully");
-        setModel(m);
-      })
-      // .catch((err) => {
-      //   console.error("Model failed to load:", err);
-      // });
-      .catch((err) => {
-      console.error("Model failed to load - message:", err?.message);
-      console.error("Model failed to load - full:", err);
-});
-  }, []);
+useEffect(() => {
+  const canvas = canvasRef.current;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}, []);
+
+//   useEffect(() => {
+//     tf.loadLayersModel("/tfjs_model/model.json")
+//       .then((m) => {
+//         console.log("Model loaded successfully");
+//         setModel(m);
+//       })
+//       // .catch((err) => {
+//       //   console.error("Model failed to load:", err);
+//       // });
+//       .catch((err) => {
+//       console.error("Model failed to load - message:", err?.message);
+//       console.error("Model failed to load - full:", err);
+// });
+//   }, []);
+
+  // useEffect(() => {
+  //   const canvas = canvasRef.current;
+  //   const ctx = canvas.getContext("2d");
+  //   ctx.fillStyle = "black";
+  //   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  //   ctx.strokeStyle = "white";
+  //   ctx.lineWidth = 18;
+  //   ctx.lineCap = "round";
+  // }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 18;
-    ctx.lineCap = "round";
-  }, []);
+  loadModel()
+    .then((m) => { console.log("Model loaded"); setModel(m); })
+    .catch((err) => console.error("Model failed to load:", err?.message, err));
+}, []);
 
   const getPos = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -44,6 +88,10 @@ export default function App() {
   const startDraw = (e) => {
     isDrawing.current = true;
     const ctx = canvasRef.current.getContext("2d");
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 20;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     const { x, y } = getPos(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -69,30 +117,62 @@ export default function App() {
   };
 
   const predict = async () => {
-  if (!model) return;
+  const canvas = canvasRef.current;
+  const ctx = canvas.getContext("2d");
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+  // 1. Bounding box of the drawn strokes
+  let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      if (data[(y * canvas.width + x) * 4] > 50) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return; // nothing drawn
+
+  // 2. Square canvas with the digit centered and padded
+  const side = Math.ceil(Math.max(maxX - minX, maxY - minY) * 1.4);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  const squared = document.createElement("canvas");
+  squared.width = side;
+  squared.height = side;
+  const sctx = squared.getContext("2d");
+  sctx.fillStyle = "black";
+  sctx.fillRect(0, 0, side, side);
+  sctx.drawImage(canvas, side / 2 - cx, side / 2 - cy);
+
+  // 3. Downscale to 28x28
   const small = document.createElement("canvas");
   small.width = 28;
   small.height = 28;
-  small.getContext("2d").drawImage(canvasRef.current, 0, 0, 28, 28);
+  const smctx = small.getContext("2d");
+  smctx.imageSmoothingQuality = "high";
+  smctx.drawImage(squared, 0, 0, 28, 28);
+
+  // preview of what the model sees
   const pctx = previewRef.current.getContext("2d");
   pctx.imageSmoothingEnabled = false;
   pctx.drawImage(small, 0, 0, 140, 140);
 
-  if(!model) return;
+  if (!model) return;
 
-  const tensor = tf.browser
-    .fromPixels(small, 1)
-    .toFloat()
-    .div(255.0)
-    .reshape([1, 784]); // flat vector, not [1, 28, 28, 1]
+  const input = tf.tidy(() =>
+    tf.browser.fromPixels(small, 1).toFloat().div(255).reshape([1, 28, 28, 1])
+  );
+  const output = model.predict(input);
+  const probs = await output.data();
+  input.dispose();
+  output.dispose();
 
-  const output = model.predict(tensor);
-  const data = await output.data();
-
-  const top = data.indexOf(Math.max(...data));
-  setPrediction(top);
-  setConfidences(Array.from(data));
+  setPrediction(probs.indexOf(Math.max(...probs)));
+  setConfidences(Array.from(probs));
 };
 
   return (
